@@ -1,6 +1,7 @@
 package log
 
 import (
+	"io"
 	"os"
 
 	"github.com/tysonmote/gommap"
@@ -69,3 +70,45 @@ func (i *index) Close() error {
 	return i.file.Close()
 }
 
+// takes in an offset and returns the records position in the Store file
+func (i *index) Read(in int64) (out uint32, pos uint64, err error) {
+	// if empty, then return err
+	if i.size == 0 {
+		return 0, 0, io.EOF
+	}
+
+	if in == -1 {
+		out = uint32((i.size / entWidth) - 1) // get last index
+	} else {
+		out = uint32(in)
+	}
+	pos = uint64(out) * entWidth // given the index, get the byte offset
+	
+	// if out of bounds, return err
+	if i.size < pos+entWidth {
+		return 0, 0, io.EOF
+	}
+
+	out = enc.Uint32(i.mmap[pos : pos+offWidth]) // read the offset width amt of bytes
+	pos = enc.Uint64(i.mmap[pos+offWidth : pos+entWidth]) // read the poswidth amt of bytes
+	return out, pos, nil
+}
+
+func (i *index) Write(off uint32, pos uint64) error {
+	if uint64(len(i.mmap)) < i.size+entWidth {
+		return io.EOF
+	}
+
+	// write the offset and the position onto the memory map
+	// offset is size offWidth (4)
+	// position is size entWidth  (8)
+	enc.PutUint32(i.mmap[i.size:i.size+offWidth], off)
+	enc.PutUint64(i.mmap[i.size+offWidth:i.size+entWidth], pos)
+	i.size += uint64(entWidth) //increment the size of the file by the new entry
+	return nil
+}
+
+
+func (i *index) Name() string {
+	return i.file.Name()
+}
